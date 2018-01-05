@@ -1,9 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
-	"io"
+	"io/ioutil"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -21,35 +21,25 @@ func main() {
 }
 
 func convert(w http.ResponseWriter, r *http.Request) {
-	var Buf bytes.Buffer
-	modtime := time.Now()
-
 	file, header, err := r.FormFile("subtitlefile")
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	defer file.Close()
 
-	name := strings.Split(header.Filename, ".")[0]
-
-	// Copy the file data to my buffer
-	io.Copy(&Buf, file)
-	// do something with the contents...
-	// I normally have a struct defined and unmarshal into a struct, but this will
-	// work as an example
-
-	contents := Buf.String()
-
-	// I reset the buffer in case I want to use it again
-	// reduces memory allocations in more intense projects
-	Buf.Reset()
-	// do something else:
-	// copy the relevant headers. If you want to preserve the downloaded file name, extract it with go's url parser.
-	attach := fmt.Sprintf("attachment; filename=%s", header.Filename)
+	data, err := ioutil.ReadAll(file)
+	if err != nil {
+		log.Fatal(err)
+	}
+	contents := string(data)
+	name := header.Filename
+	attach := fmt.Sprintf("attachment; filename=%s", name)
+	// copy the relevant headers and filename:
 	w.Header().Set("Content-Disposition", attach)
 	w.Header().Set("Content-Type", r.Header.Get("Content-Type"))
 	w.Header().Set("Content-Length", r.Header.Get("Content-Length"))
 
+	modtime := time.Now()
 	http.ServeContent(w, r, name, modtime, strings.NewReader(contents))
 
 	return
