@@ -2,11 +2,11 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -31,22 +31,37 @@ func convert(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	fmt.Println(r.FormValue("from"))
+	seconds, err := strconv.ParseFloat(r.FormValue("seconds"), 64)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	nameIn := header.Filename
+	nameOut := nameOutput(nameIn, seconds)
 
 	data, err := ioutil.ReadAll(file)
 	if err != nil {
 		log.Fatal(err)
 	}
 	contents := string(data)
-	name := header.Filename
-	attach := fmt.Sprintf("attachment; filename=%s", name)
+
+	if strings.HasSuffix(nameIn, ".srt") {
+		contents = convertSRT(contents, seconds)
+	} else if strings.HasSuffix(nameIn, ".vtt") {
+		contents = convertVTT(contents, seconds)
+	} else {
+		fmt.Println("Specify an .srt or .vtt file as input.")
+		return
+	}
+
+	attach := fmt.Sprintf("attachment; filename=%s", nameOut)
 	// copy the relevant headers and filename:
 	w.Header().Set("Content-Disposition", attach)
 	w.Header().Set("Content-Type", r.Header.Get("Content-Type"))
 	w.Header().Set("Content-Length", r.Header.Get("Content-Length"))
 
 	modtime := time.Now()
-	http.ServeContent(w, r, name, modtime, strings.NewReader(contents))
+	http.ServeContent(w, r, nameOut, modtime, strings.NewReader(contents))
 
 	return
 }
@@ -126,30 +141,18 @@ func nameOutput(inputfile string, seconds float64) string {
 // 2
 // 00:00:03.802 --> 00:00:05.314
 // Etc.
-func convertVTT(inputfile string, outputfile string, seconds float64) int {
-	input, err := os.Open(inputfile)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer input.Close()
-
-	output, err := os.Create(outputfile)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer output.Close()
-
+func convertVTT(contents string, seconds float64) string {
 	// Compile regex to find time-line outside of loop for performance:
 	re, err := regexp.Compile(`\d\d:\d\d:\d\d\.\d\d\d`)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	var deleted_subs int = 0
 	var skip bool = false
+	var buffer bytes.Buffer
 
-	// Iterate line by line over inputfile:
-	scanner := bufio.NewScanner(input)
+	// Iterate line by line over contents:
+	scanner := bufio.NewScanner(strings.NewReader(contents))
 	for scanner.Scan() {
 
 		var old_line string = scanner.Text()
@@ -160,7 +163,6 @@ func convertVTT(inputfile string, outputfile string, seconds float64) int {
 		if time_line {
 			new_line = processLine(old_line, seconds)
 			if new_line == "(DELETED)\n" {
-				deleted_subs += 1
 				skip = true
 			}
 		} else {
@@ -179,17 +181,14 @@ func convertVTT(inputfile string, outputfile string, seconds float64) int {
 			}
 		}
 
-		_, err = output.WriteString(new_line + "\n")
-		if err != nil {
-			log.Fatal(err)
-		}
+		buffer.WriteString(new_line + "\n")
 	}
 
 	if err := scanner.Err(); err != nil {
 		log.Fatal(err)
 	}
 
-	return deleted_subs
+	return buffer.String()
 }
 
 // Loops through the given inputfile, modifies the lines consisting of the time encoding,
@@ -213,30 +212,17 @@ func convertVTT(inputfile string, outputfile string, seconds float64) int {
 // 2
 // 00:00:03,802 --> 00:00:05,314
 // Etc.
-func convertSRT(inputfile string, outputfile string, seconds float64) int {
-	input, err := os.Open(inputfile)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer input.Close()
-
-	output, err := os.Create(outputfile)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer output.Close()
-
+func convertSRT(contents string, seconds float64) string {
 	// Compile regex to find time-line outside of loop for performance:
 	re, err := regexp.Compile(`\d\d:\d\d:\d\d,\d\d\d`)
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	var deleted_subs int = 0
 	var skip bool = false
+	var buffer bytes.Buffer
 
-	// Iterate line by line over inputfile:
-	scanner := bufio.NewScanner(input)
+	// Iterate line by line over contents:
+	scanner := bufio.NewScanner(strings.NewReader(contents))
 	for scanner.Scan() {
 
 		var old_line string = scanner.Text()
@@ -249,7 +235,6 @@ func convertSRT(inputfile string, outputfile string, seconds float64) int {
 			new_line = strings.Replace(old_line, ",", ".", 2)
 			new_line = processLine(new_line, seconds)
 			if new_line == "(DELETED)\n" {
-				deleted_subs += 1
 				skip = true
 			} else {
 				// Convert back to '.srt' style:
@@ -271,17 +256,14 @@ func convertSRT(inputfile string, outputfile string, seconds float64) int {
 			}
 		}
 
-		_, err = output.WriteString(new_line + "\n")
-		if err != nil {
-			log.Fatal(err)
-		}
+		buffer.WriteString(new_line + "\n")
 	}
 
 	if err := scanner.Err(); err != nil {
 		log.Fatal(err)
 	}
 
-	return deleted_subs
+	return buffer.String()
 }
 
 // Process the given line by adding seconds to start and end time.
