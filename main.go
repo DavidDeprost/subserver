@@ -45,7 +45,6 @@ func convert(w http.ResponseWriter, r *http.Request) {
 	seconds *= plusmin
 
 	nameIn := header.Filename
-	nameOut := nameOutput(nameIn, seconds)
 
 	data, err := ioutil.ReadAll(file)
 	if err != nil {
@@ -53,11 +52,12 @@ func convert(w http.ResponseWriter, r *http.Request) {
 	}
 	contents := string(data)
 
-	from := r.FormValue("from")
-	to := r.FormValue("to")
+	fromExt := r.FormValue("from")
+	toExt := r.FormValue("to")
+	nameOut := nameOutput(nameIn, seconds, fromExt, toExt)
 
-	if from != path.Ext(nameIn) {
-		fmt.Printf("from = %s\n", from)
+	if fromExt != path.Ext(nameIn) {
+		fmt.Printf("from = %s\n", fromExt)
 		fmt.Printf("ext = %s\n", path.Ext(nameIn))
 		log.Fatal("The chosen 'from' extension does not match ",
 			"that of the filename.")
@@ -65,13 +65,13 @@ func convert(w http.ResponseWriter, r *http.Request) {
 
 	// We need vtt to convert, because vtt has '.' decimals
 	// (instead of ',' decimals in srt)
-	if from == ".srt" {
+	if fromExt == ".srt" {
 		contents = toVTT(contents)
 	}
 
 	contents = convertVTT(contents, seconds)
 
-	if to == ".srt" {
+	if toExt == ".srt" {
 		contents = toSRT(contents)
 	}
 
@@ -93,7 +93,7 @@ func convert(w http.ResponseWriter, r *http.Request) {
 // However, if the file has already been processed by submod before, we simply change
 // the 'increment number' x, instead of prepending "{+x.xx_Sec}_" a second time.
 // This way we can conveniently process files multiple times, and still have sensible names.
-func nameOutput(inputfile string, seconds float64) string {
+func nameOutput(inputfile string, seconds float64, fromExt string, toExt string) string {
 	// Regex to check if the inputfile was previously processed by submod:
 	proc, err := regexp.Compile(`\{[+-]\d+\.\d+_Sec\}_`)
 	if err != nil {
@@ -137,6 +137,10 @@ func nameOutput(inputfile string, seconds float64) string {
 	}
 
 	var outputfile string = fmt.Sprintf(placeholder, incr)
+
+	if fromExt != toExt {
+		outputfile = strings.TrimSuffix(outputfile, fromExt) + toExt
+	}
 
 	return outputfile
 }
