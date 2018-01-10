@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -52,13 +53,26 @@ func convert(w http.ResponseWriter, r *http.Request) {
 	}
 	contents := string(data)
 
-	if strings.HasSuffix(nameIn, ".srt") {
-		contents = convertSRT(contents, seconds)
-	} else if strings.HasSuffix(nameIn, ".vtt") {
-		contents = convertVTT(contents, seconds)
-	} else {
-		fmt.Println("Specify an .srt or .vtt file as input.")
-		return
+	from := r.FormValue("from")
+	to := r.FormValue("to")
+
+	if from != path.Ext(nameIn) {
+		fmt.Printf("from = %s\n", from)
+		fmt.Printf("ext = %s\n", path.Ext(nameIn))
+		log.Fatal("The chosen 'from' extension does not match ",
+			"that of the filename.")
+	}
+
+	// We need vtt to convert, because vtt has '.' decimals
+	// (instead of ',' decimals in srt)
+	if from == ".srt" {
+		contents = toVTT(contents)
+	}
+
+	contents = convertVTT(contents, seconds)
+
+	if to == ".srt" {
+		contents = toSRT(contents)
 	}
 
 	attach := fmt.Sprintf("attachment; filename=%s", nameOut)
@@ -127,6 +141,78 @@ func nameOutput(inputfile string, seconds float64) string {
 	return outputfile
 }
 
+// Converts an SRT subtitle file to a VTT.
+func toVTT(contents string) string {
+	// Compile regex to find time-line outside of loop for performance:
+	re, err := regexp.Compile(`\d\d:\d\d:\d\d\,\d\d\d`)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var buffer bytes.Buffer
+
+	// Iterate line by line over contents:
+	scanner := bufio.NewScanner(strings.NewReader(contents))
+	for scanner.Scan() {
+
+		var old_line string = scanner.Text()
+		var new_line string
+		var time_line bool = re.MatchString(old_line)
+
+		// Time-line: This is the line we need to modify
+		if time_line {
+			// We need '.' instead of ',' for VTT (and floats)!
+			new_line = strings.Replace(old_line, ",", ".", 2)
+		} else {
+			new_line = old_line
+		}
+
+		buffer.WriteString(new_line + "\n")
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+	}
+
+	return buffer.String()
+}
+
+// Converts a VTT subtitle file to an SRT.
+func toSRT(contents string) string {
+	// Compile regex to find time-line outside of loop for performance:
+	re, err := regexp.Compile(`\d\d:\d\d:\d\d\.\d\d\d`)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var buffer bytes.Buffer
+
+	// Iterate line by line over contents:
+	scanner := bufio.NewScanner(strings.NewReader(contents))
+	for scanner.Scan() {
+
+		var old_line string = scanner.Text()
+		var new_line string
+		var time_line bool = re.MatchString(old_line)
+
+		// Time-line: This is the line we need to modify
+		if time_line {
+			// We need ',' instead of '.' for SRT files!
+			new_line = strings.Replace(old_line, ".", ",", 2)
+		} else {
+			new_line = old_line
+		}
+
+		buffer.WriteString(new_line + "\n")
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+	}
+
+	return buffer.String()
+}
+
 // Loops through the given inputfile, modifies the lines consisting of the time encoding,
 // writes everything back to outputfile, and returns the number of subtitles that were deleted.
 //
@@ -171,81 +257,6 @@ func convertVTT(contents string, seconds float64) string {
 			new_line = processLine(old_line, seconds)
 			if new_line == "(DELETED)\n" {
 				skip = true
-			}
-		} else {
-			// When skip = True, subtitles are shifted too far back
-			// into the past (before the start of the movie),
-			// so they are deleted:
-			if skip {
-				// Subtitles can be 1 or 2 lines; we should only update
-				// skip when we have arrived at an empty line:
-				if old_line == "" {
-					skip = false
-				}
-				continue
-			} else {
-				new_line = old_line
-			}
-		}
-
-		buffer.WriteString(new_line + "\n")
-	}
-
-	if err := scanner.Err(); err != nil {
-		log.Fatal(err)
-	}
-
-	return buffer.String()
-}
-
-// Loops through the given inputfile, modifies the lines consisting of the time encoding,
-// writes everything back to outputfile, and returns the number of subtitles that were deleted.
-//
-// This function is identical to convertVTT,
-// except that it uses ',' for the seconds field's decimal space.
-//
-// The subtitle files consist of a repetition of the following 3 lines:
-//
-// - Index-line: integer count indicating line number
-// - Time-line: encoding the duration for which the subtitle appears
-// - Sub-line: the actual subtitle to appear on-screen (1 or 2 lines)
-//
-// Example .srt (Note: ',' for decimal spaces):
-//
-// 1
-// 00:00:00,243 --> 00:00:02,110
-// Previously on ...
-//
-// 2
-// 00:00:03,802 --> 00:00:05,314
-// Etc.
-func convertSRT(contents string, seconds float64) string {
-	// Compile regex to find time-line outside of loop for performance:
-	re, err := regexp.Compile(`\d\d:\d\d:\d\d,\d\d\d`)
-	if err != nil {
-		log.Fatal(err)
-	}
-	var skip bool = false
-	var buffer bytes.Buffer
-
-	// Iterate line by line over contents:
-	scanner := bufio.NewScanner(strings.NewReader(contents))
-	for scanner.Scan() {
-
-		var old_line string = scanner.Text()
-		var new_line string
-		var time_line bool = re.MatchString(old_line)
-
-		// Time-line: This is the line we need to modify
-		if time_line {
-			// We need '.' instead of ',' for floats!
-			new_line = strings.Replace(old_line, ",", ".", 2)
-			new_line = processLine(new_line, seconds)
-			if new_line == "(DELETED)\n" {
-				skip = true
-			} else {
-				// Convert back to '.srt' style:
-				new_line = strings.Replace(new_line, ".", ",", 2)
 			}
 		} else {
 			// When skip = True, subtitles are shifted too far back
