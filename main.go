@@ -18,12 +18,23 @@ func main() {
 	server := http.Server{
 		Addr: "127.0.0.1:8080",
 	}
-	fmt.Printf("Subserver is now running on http://%s ...\n", server.Addr)
+	log.Printf("Subserver is now running on http://%s ...\n", server.Addr)
 	http.HandleFunc("/convert", convert)
 
 	http.Handle("/", http.FileServer(http.Dir("./static")))
 
 	server.ListenAndServe()
+}
+
+func allowedExt(ext string) bool {
+	slice := []string{".srt", ".vtt"}
+
+	for _, val := range slice {
+		if val == ext {
+			return true
+		}
+	}
+	return false
 }
 
 func convert(w http.ResponseWriter, r *http.Request) {
@@ -44,8 +55,6 @@ func convert(w http.ResponseWriter, r *http.Request) {
 	}
 	seconds *= plusmin
 
-	nameIn := header.Filename
-
 	data, err := ioutil.ReadAll(file)
 	if err != nil {
 		log.Fatal(err)
@@ -53,7 +62,14 @@ func convert(w http.ResponseWriter, r *http.Request) {
 	contents := string(data)
 
 	fromExt := r.FormValue("from")
+	if !allowedExt(fromExt) {
+		log.Fatalf("'From' extension '%s' is not allowed.", fromExt)
+	}
 	toExt := r.FormValue("to")
+	if !allowedExt(toExt) {
+		log.Fatalf("'To' extension '%s' is not allowed.", toExt)
+	}
+	nameIn := header.Filename
 	nameOut := nameOutput(nameIn, seconds, fromExt, toExt)
 
 	if fromExt != path.Ext(nameIn) {
