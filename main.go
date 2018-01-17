@@ -24,19 +24,8 @@ func main() {
 		Handler: mux,
 	}
 
-	log.Printf("Subserver is now running on http://%s ...\n", server.Addr)
+	log.Printf("\nSubserver is now running on http://%s ...\n", server.Addr)
 	server.ListenAndServe()
-}
-
-func allowedExt(ext string) bool {
-	slice := []string{".srt", ".vtt"}
-
-	for _, val := range slice {
-		if val == ext {
-			return true
-		}
-	}
-	return false
 }
 
 func convert(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +52,9 @@ func convert(w http.ResponseWriter, r *http.Request) {
 	}
 	contents := string(data)
 
-	fromExt := r.FormValue("from")
+	nameIn := header.Filename
+
+	fromExt := path.Ext(nameIn)
 	if !allowedExt(fromExt) {
 		log.Fatalf("'From' extension '%s' is not allowed.", fromExt)
 	}
@@ -71,15 +62,8 @@ func convert(w http.ResponseWriter, r *http.Request) {
 	if !allowedExt(toExt) {
 		log.Fatalf("'To' extension '%s' is not allowed.", toExt)
 	}
-	nameIn := header.Filename
-	nameOut := nameOutput(nameIn, seconds, fromExt, toExt)
 
-	if fromExt != path.Ext(nameIn) {
-		fmt.Printf("from = %s\n", fromExt)
-		fmt.Printf("ext = %s\n", path.Ext(nameIn))
-		log.Fatal("The chosen 'from' extension does not match ",
-			"that of the filename.")
-	}
+	nameOut := nameOutput(nameIn, seconds, fromExt, toExt)
 
 	// We need vtt to convert, because vtt has '.' decimals
 	// (instead of ',' decimals in srt)
@@ -103,6 +87,17 @@ func convert(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, nameOut, modtime, strings.NewReader(contents))
 
 	return
+}
+
+func allowedExt(ext string) bool {
+	slice := []string{".srt", ".vtt"}
+
+	for _, val := range slice {
+		if val == ext {
+			return true
+		}
+	}
+	return false
 }
 
 // Determines the name of the outputfile based on the inputfile and seconds;
