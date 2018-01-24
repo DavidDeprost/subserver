@@ -32,16 +32,5 @@ function checkFields() {
         return false;
     }
 
-    var filename = form.subtitlefile.value;
-    var ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
-    var from = form.from.value;
-    alert("from = " + from)
-    if (ext != from)
-    {
-        alert("The file's extension " + ext + " does not match the from field's " + from + ".\n" +
-        'Either change the from field to ' + ext + ', or choose a file with extension ' + from + '.');
-        return false;
-    }
-
     return true;
 }
