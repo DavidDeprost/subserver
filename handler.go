@@ -12,6 +12,11 @@ import (
 )
 
 func convert(w http.ResponseWriter, r *http.Request) {
+	// This limits the size of the entire request body and not
+	// an individual file. Since we are uploading a single file
+	// at a time, limiting the size of the request body should
+	// a good approximation of limiting the file size to 200kB:
+	r.Body = http.MaxBytesReader(w, r.Body, 200*1024)
 	file, header, err := r.FormFile("subtitlefile")
 	if err != nil {
 		log.Fatal(err)
